@@ -1,4 +1,4 @@
-# Co-op Compass
+# Co-op NoteBook
 
 A local, full-stack command centre for keeping a co-op search organized. It lets a student track applications from saved job to offer, see response-rate analytics, search their pipeline, and keep useful notes and skill tags alongside each role.
 
