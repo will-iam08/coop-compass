@@ -1,6 +1,7 @@
 const statuses = ["SAVED", "APPLIED", "INTERVIEW", "OFFER", "REJECTED"];
 const labels = { SAVED: "Saved", APPLIED: "Applied", INTERVIEW: "Interview", OFFER: "Offer", REJECTED: "Rejected" };
 let applications = [];
+let deletedApplications = [];
 
 const board = document.querySelector("#board");
 const notice = document.querySelector("#notice");
@@ -8,10 +9,20 @@ const form = document.querySelector("#application-form");
 const goalInput = document.querySelector("#weekly-goal");
 const statusFilter = document.querySelector("#status-filter");
 const sortBy = document.querySelector("#sort-by");
+const recentlyDeleted = document.querySelector("#recently-deleted");
+const deletedCount = document.querySelector("#deleted-count");
+const confirmDialog = document.querySelector("#confirm-dialog");
+const confirmCopy = document.querySelector("#confirm-copy");
+const confirmRemove = document.querySelector("#confirm-remove");
+const keepApplication = document.querySelector("#keep-application");
+const cancelRemove = document.querySelector("#cancel-remove");
+const storageKey = "my-internship-notebook-weekly-goal";
+const retentionMs = 7 * 24 * 60 * 60 * 1000;
+let resolveRemoval;
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, character => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[character]);
 const dateLabel = value => value ? `Deadline: ${new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month:"short", day:"numeric" })}` : "";
-const savedGoal = Number(window.localStorage.getItem("coop-compass-weekly-goal"));
+const savedGoal = Number(window.localStorage.getItem(storageKey) ?? window.localStorage.getItem("coop-compass-weekly-goal"));
 goalInput.value = savedGoal > 0 ? savedGoal : 6;
 
 async function request(url, options = {}) {
@@ -24,6 +35,30 @@ function showNotice(message, error = false) {
   notice.textContent = message; notice.hidden = false; notice.classList.toggle("error", error);
   window.clearTimeout(showNotice.timer); showNotice.timer = window.setTimeout(() => { notice.hidden = true; }, 4200);
 }
+
+function confirmRemoval(company) {
+  confirmCopy.textContent = `${company} will stay recoverable in Recently Deleted for seven days.`;
+  confirmDialog.showModal();
+  return new Promise(resolve => { resolveRemoval = resolve; });
+}
+
+function closeRemoval(confirmed) {
+  if (!confirmDialog.open) return;
+  confirmDialog.close();
+  resolveRemoval?.(confirmed);
+  resolveRemoval = undefined;
+}
+
+confirmRemove.addEventListener("click", () => closeRemoval(true));
+keepApplication.addEventListener("click", () => closeRemoval(false));
+cancelRemove.addEventListener("click", () => closeRemoval(false));
+confirmDialog.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeRemoval(false);
+});
+confirmDialog.addEventListener("click", event => {
+  if (event.target === confirmDialog) closeRemoval(false);
+});
 
 function render() {
   const query = document.querySelector("#search").value.trim().toLowerCase();
@@ -44,6 +79,7 @@ function render() {
     board.append(column);
   });
   renderInsights();
+  renderRecentlyDeleted();
 }
 
 function compareApplications(left, right) {
@@ -73,8 +109,11 @@ function card(application, index) {
     try { await request(`/api/applications/${application.id}`, { method:"PATCH", body:JSON.stringify({ status:event.target.value }) }); await refresh(); showNotice("Application updated."); }
     catch (error) { showNotice(error.message, true); event.target.value = application.status; }
   });
-  node.querySelector(".delete").addEventListener("click", async () => {
-    if (!window.confirm(`Remove ${application.company} from your pipeline?`)) return;
+  const removeButton = node.querySelector(".delete");
+  removeButton.setAttribute("aria-label", `Move ${application.company} to Recently Deleted`);
+  removeButton.addEventListener("click", async () => {
+    const confirmed = await confirmRemoval(application.company);
+    if (confirmed !== true) return;
     try { await request(`/api/applications/${application.id}`, { method:"DELETE" }); await refresh(); showNotice("Application removed."); }
     catch (error) { showNotice(error.message, true); }
   });
@@ -115,8 +154,68 @@ function renderInsights() {
     : `<p class="empty-insight">Add skill tags to spot patterns across roles.</p>`;
 }
 
+function timeRemaining(deletedAt) {
+  const expiresAt = new Date(deletedAt).getTime() + retentionMs;
+  const remaining = expiresAt - Date.now();
+  if (!Number.isFinite(expiresAt) || remaining <= 0) return "Expires soon";
+  const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+  return days === 1 ? "1 day left" : `${days} days left`;
+}
+
+function renderRecentlyDeleted() {
+  const count = deletedApplications.length;
+  deletedCount.textContent = `${count} ${count === 1 ? "item" : "items"}`;
+  recentlyDeleted.innerHTML = "";
+
+  if (!count) {
+    recentlyDeleted.innerHTML = `<p class="deleted-empty">Nothing here right now. If you remove an application, you’ll have seven days to bring it back.</p>`;
+    return;
+  }
+
+  deletedApplications
+    .slice()
+    .sort((left, right) => new Date(right.deletedAt) - new Date(left.deletedAt))
+    .forEach((application, index) => {
+      const node = document.createElement("article");
+      node.className = "deleted-card";
+      node.style.setProperty("--deleted-index", index);
+      const timer = document.createElement("p");
+      timer.className = "deleted-timer";
+      timer.textContent = `◷ ${timeRemaining(application.deletedAt)}`;
+      const company = document.createElement("h3");
+      company.textContent = application.company;
+      const details = document.createElement("p");
+      details.className = "deleted-details";
+      details.textContent = [application.role, application.location].filter(Boolean).join(" · ") || "Application";
+      const restore = document.createElement("button");
+      restore.className = "button restore-button";
+      restore.type = "button";
+      restore.textContent = "Restore to pipeline ↗";
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        try {
+          await request(`/api/recently-deleted/${application.id}/restore`, { method:"POST" });
+          await refresh();
+          showNotice(`${application.company} is back in your pipeline.`);
+        } catch (error) {
+          showNotice(error.message, true);
+          restore.disabled = false;
+        }
+      });
+      node.append(timer, company, details, restore);
+      recentlyDeleted.append(node);
+    });
+}
+
 async function refresh() {
-  [applications] = await Promise.all([request("/api/applications"), request("/api/dashboard").then(stats)]);
+  const [activeApplications, dashboard, removedApplications] = await Promise.all([
+    request("/api/applications"),
+    request("/api/dashboard"),
+    request("/api/recently-deleted")
+  ]);
+  applications = activeApplications;
+  deletedApplications = removedApplications;
+  stats(dashboard);
   render();
 }
 
@@ -133,7 +232,7 @@ sortBy.addEventListener("change", render);
 goalInput.addEventListener("change", () => {
   const goal = Math.max(1, Math.min(50, Number(goalInput.value) || 6));
   goalInput.value = goal;
-  window.localStorage.setItem("coop-compass-weekly-goal", goal);
+  window.localStorage.setItem(storageKey, goal);
   renderInsights();
 });
 document.querySelector("#export-csv").addEventListener("click", () => {
@@ -141,7 +240,7 @@ document.querySelector("#export-csv").addEventListener("click", () => {
   const quote = value => `"${String(value ?? "").replaceAll("\"", "\"\"")}"`;
   const rows = applications.map(application => [application.company, application.role, application.location, application.source, labels[application.status], application.deadline, application.skills.join(", "), application.notes].map(quote).join(","));
   const blob = new Blob([[columns.join(","), ...rows].join("\n")], { type:"text/csv;charset=utf-8" });
-  const link = Object.assign(document.createElement("a"), { href:URL.createObjectURL(blob), download:"coop-compass-applications.csv" });
+  const link = Object.assign(document.createElement("a"), { href:URL.createObjectURL(blob), download:"my-internship-notebook-applications.csv" });
   link.click(); URL.revokeObjectURL(link.href);
   showNotice("CSV exported — nice work keeping a record of your search.");
 });

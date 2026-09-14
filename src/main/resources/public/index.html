@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="A calm command centre for your co-op search." />
-    <title>Co-op Compass</title>
+    <meta name="description" content="A calm command centre for your internship search." />
+    <title>My Internship Notebook</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,12 +14,12 @@
       <header class="hero">
         <div class="hero-copy">
           <div class="status-pill"><i></i> Search mode: on</div>
-          <p class="eyebrow">YOUR CO-OP SEARCH, ORGANIZED</p>
-          <h1>Co-op Compass<span>.</span></h1>
+          <p class="eyebrow">YOUR INTERNSHIP SEARCH, ORGANIZED</p>
+          <h1>My Internship Notebook<span>.</span></h1>
           <p class="subtitle">A calm, focused home base for turning good applications into great interviews.</p>
         </div>
         <div class="hero-actions">
-          <span class="term-badge">JAN ’27 CO-OP</span>
+          <span class="term-badge">WINTER ’27 INTERNSHIP</span>
           <button class="button button-secondary" id="load-demo" type="button">✦ Load demo data</button>
         </div>
       </header>
@@ -81,10 +81,22 @@
           <div class="board" id="board"></div>
         </section>
       </section>
+
+      <section class="panel deleted-panel" aria-labelledby="recently-deleted-heading">
+        <div class="deleted-heading">
+          <div>
+            <p class="eyebrow">A SMALL SAFETY NET</p>
+            <h2 id="recently-deleted-heading">Recently Deleted</h2>
+            <p>Applications you remove stay here for seven days, then clear themselves automatically.</p>
+          </div>
+          <span class="deleted-count" id="deleted-count" aria-live="polite">0 items</span>
+        </div>
+        <div class="deleted-list" id="recently-deleted"></div>
+      </section>
     </main>
     <template id="card-template">
       <article class="application-card">
-        <div class="card-top"><p class="company"></p><button class="delete" type="button" title="Delete application" aria-label="Delete application">×</button></div>
+        <div class="card-top"><p class="company"></p><button class="delete" type="button" title="Move to Recently Deleted" aria-label="Move to Recently Deleted">×</button></div>
         <h3 class="role"></h3>
         <p class="meta"></p>
         <p class="deadline"></p>
@@ -93,6 +105,19 @@
         <label class="status-label"><span>Move to</span><select class="status-select"></select></label>
       </article>
     </template>
+    <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-copy">
+      <section class="confirm-card">
+        <button class="dialog-close" type="button" id="cancel-remove" aria-label="Keep this application">×</button>
+        <div class="dialog-mark" aria-hidden="true">✦</div>
+        <p class="eyebrow">A SMALL SAFETY NET</p>
+        <h2 id="confirm-title">Move this to Recently Deleted?</h2>
+        <p id="confirm-copy">You can always add it back later.</p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" type="button" id="keep-application">Keep it</button>
+          <button class="button danger-button" type="button" id="confirm-remove">Move it</button>
+        </div>
+      </section>
+    </dialog>
     <script src="app.js"></script>
   </body>
 </html>

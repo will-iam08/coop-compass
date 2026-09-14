@@ -29,11 +29,12 @@ public final class ApplicationServer {
         ApplicationServer app = new ApplicationServer(repository, Path.of("src", "main", "resources", "public").toAbsolutePath());
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", port), 0);
         server.createContext("/api/applications", app::applications);
+        server.createContext("/api/recently-deleted", app::recentlyDeleted);
         server.createContext("/api/dashboard", app::dashboard);
         server.createContext("/", app::staticFile);
         server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
-        System.out.println("Co-op Compass is running at http://localhost:" + port);
+        System.out.println("My Internship Notebook is running at http://localhost:" + port);
     }
 
     private void applications(HttpExchange exchange) throws IOException {
@@ -85,6 +86,49 @@ public final class ApplicationServer {
         respondJson(exchange, 200, "{\"total\":" + dashboard.total() + ",\"responseRate\":" + dashboard.responseRate() + ",\"byStatus\":{" + statuses + "}}");
     }
 
+    private void recentlyDeleted(HttpExchange exchange) throws IOException {
+        try {
+            String method = exchange.getRequestMethod();
+            String path = exchange.getRequestURI().getPath();
+            if ("GET".equals(method) && "/api/recently-deleted".equals(path)) {
+                String applications = repository.recentlyDeleted().stream()
+                        .map(this::deletedApplicationJson)
+                        .reduce((left, right) -> left + "," + right)
+                        .orElse("");
+                respondJson(exchange, 200, "[" + applications + "]");
+                return;
+            }
+
+            String restoreSuffix = "/restore";
+            if ("POST".equals(method) && path.endsWith(restoreSuffix)) {
+                long id = idFrom(path.substring(0, path.length() - restoreSuffix.length()), "/api/recently-deleted/");
+                if (id <= 0) {
+                    respondJson(exchange, 405, error("Method or endpoint not supported."));
+                    return;
+                }
+                Application restored = repository.restore(id).orElseThrow(() -> new NotFoundException("Recently deleted application not found."));
+                respondJson(exchange, 200, applicationJson(restored));
+                return;
+            }
+
+            long id = idFrom(path, "/api/recently-deleted/");
+            if ("DELETE".equals(method) && id > 0) {
+                if (!repository.permanentlyDelete(id)) throw new NotFoundException("Recently deleted application not found.");
+                exchange.sendResponseHeaders(204, -1);
+                exchange.close();
+                return;
+            }
+            respondJson(exchange, 405, error("Method or endpoint not supported."));
+        } catch (NotFoundException exception) {
+            respondJson(exchange, 404, error(exception.getMessage()));
+        } catch (IllegalArgumentException exception) {
+            respondJson(exchange, 400, error(exception.getMessage()));
+        } catch (Exception exception) {
+            exception.printStackTrace();
+            respondJson(exchange, 500, error("Something went wrong. Try again."));
+        }
+    }
+
     private void staticFile(HttpExchange exchange) throws IOException {
         if (!"GET".equals(exchange.getRequestMethod())) {
             exchange.sendResponseHeaders(405, -1);
@@ -116,13 +160,24 @@ public final class ApplicationServer {
     }
 
     private long idFrom(String path) {
-        String prefix = "/api/applications/";
+        return idFrom(path, "/api/applications/");
+    }
+
+    private long idFrom(String path, String prefix) {
         if (!path.startsWith(prefix)) return -1;
         try { return Long.parseLong(path.substring(prefix.length())); }
         catch (NumberFormatException exception) { return -1; }
     }
 
     private String applicationJson(Application application) {
+        return applicationJson(application, null);
+    }
+
+    private String deletedApplicationJson(ApplicationRepository.DeletedApplication deleted) {
+        return applicationJson(deleted.application(), deleted.deletedAt());
+    }
+
+    private String applicationJson(Application application, java.time.Instant deletedAt) {
         return "{\"id\":" + application.id()
                 + ",\"company\":\"" + Json.escape(application.company()) + "\""
                 + ",\"role\":\"" + Json.escape(application.role()) + "\""
@@ -132,7 +187,9 @@ public final class ApplicationServer {
                 + ",\"deadline\":\"" + application.deadline() + "\""
                 + ",\"notes\":\"" + Json.escape(application.notes()) + "\""
                 + ",\"skills\":[" + application.skills().stream().map(skill -> "\"" + Json.escape(skill) + "\"").reduce((left, right) -> left + "," + right).orElse("") + "]"
-                + ",\"createdAt\":\"" + DateTimeFormatter.ISO_INSTANT.format(application.createdAt()) + "\"}";
+                + ",\"createdAt\":\"" + DateTimeFormatter.ISO_INSTANT.format(application.createdAt()) + "\""
+                + (deletedAt == null ? "" : ",\"deletedAt\":\"" + DateTimeFormatter.ISO_INSTANT.format(deletedAt) + "\"")
+                + "}";
     }
 
     private static String readBody(HttpExchange exchange) throws IOException {

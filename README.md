@@ -1,6 +1,6 @@
-# Co-op Compass
+# My Internship Notebook
 
-A local, full-stack command centre for keeping a co-op search organized. It lets a student track applications from saved job to offer, see response-rate analytics, search their pipeline, and keep useful notes and skill tags alongside each role.
+A local, full-stack command centre for keeping an internship search organized. It lets a student track applications from saved job to offer, see response-rate analytics, search their pipeline, and keep useful notes and skill tags alongside each role.
 
 ## Features
 
@@ -8,6 +8,7 @@ A local, full-stack command centre for keeping a co-op search organized. It lets
 - Application search, status filtering, and deadline/company sorting
 - Deadline radar and role-skill trend signals derived from your data
 - Persistent weekly application goal (stored locally in your browser)
+- Apple-style Recently Deleted safety net: removed applications remain restorable for seven days
 - Responsive, accessible interface with motion that respects reduced-motion settings
 - CSV export for your personal application record
 - Local TSV persistence: no account or data upload required
@@ -17,7 +18,7 @@ This first version deliberately has **zero third-party dependencies**: the backe
 ## What it demonstrates
 
 - RESTful Java API design and input validation
-- Persistent local storage, status transitions, and derived analytics
+- Persistent local storage, reversible seven-day deletion, status transitions, and derived analytics
 - Responsive frontend state management using `fetch`
 - Accessible form labels, live error/status feedback, and keyboard-friendly controls
 - Automated persistence test and Docker packaging
@@ -59,4 +60,4 @@ Java HTTP server ── ApplicationRepository ── data/applications.tsv
 
 ## Suggested résumé bullet
 
-> Built Co-op Compass, a full-stack job-search dashboard using Java and JavaScript; designed REST endpoints, persistent application tracking, responsive analytics, and an accessible kanban workflow.
+> Built My Internship Notebook, a full-stack job-search dashboard using Java and JavaScript; designed REST endpoints, persistent application tracking, responsive analytics, and an accessible kanban workflow.
