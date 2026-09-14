@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A calm command centre for your co-op search." />
+    <title>Co-op Compass</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="aurora aurora-one"></div>
+    <div class="aurora aurora-two"></div>
+    <main class="shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <div class="status-pill"><i></i> Search mode: on</div>
+          <p class="eyebrow">YOUR CO-OP SEARCH, ORGANIZED</p>
+          <h1>Co-op Compass<span>.</span></h1>
+          <p class="subtitle">A calm, focused home base for turning good applications into great interviews.</p>
+        </div>
+        <div class="hero-actions">
+          <span class="term-badge">JAN ’27 CO-OP</span>
+          <button class="button button-secondary" id="load-demo" type="button">✦ Load demo data</button>
+        </div>
+      </header>
+
+      <section class="stats" aria-label="Application statistics">
+        <article><div class="stat-icon">⌁</div><p>In your pipeline</p><strong id="total-count">0</strong><span>applications</span></article>
+        <article><div class="stat-icon blue">↗</div><p>Applied</p><strong id="applied-count">0</strong><span>sent out</span></article>
+        <article><div class="stat-icon pink">✦</div><p>Interviews</p><strong id="interview-count">0</strong><span>in progress</span></article>
+        <article class="highlight"><div class="stat-icon mint">◎</div><p>Response rate</p><strong id="response-rate">0%</strong><span>from submitted apps</span></article>
+      </section>
+
+      <section class="insights" aria-label="Search insights">
+        <article class="insight-card goal-card">
+          <div class="insight-heading"><div><p class="eyebrow">THIS WEEK</p><h2>Build your rhythm</h2></div><label class="goal-input"><span class="sr-only">Weekly application goal</span><input id="weekly-goal" type="number" min="1" max="50" value="6" /><span>apps</span></label></div>
+          <div class="progress-track"><span id="goal-progress"></span></div>
+          <p class="goal-copy" id="goal-copy">Add applications to get started.</p>
+        </article>
+        <article class="insight-card">
+          <div class="insight-heading"><div><p class="eyebrow">NEXT UP</p><h2>Deadline radar</h2></div><span class="insight-mark">◷</span></div>
+          <div class="deadline-list" id="up-next"></div>
+        </article>
+        <article class="insight-card">
+          <div class="insight-heading"><div><p class="eyebrow">YOUR MARKET</p><h2>Skill signals</h2></div><span class="insight-mark">⌘</span></div>
+          <div class="signal-tags" id="top-skills"></div>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <aside class="panel form-panel">
+          <div class="panel-heading"><div><p class="eyebrow">ADD APPLICATION</p><h2>Make your next move.</h2></div><span class="plus-mark">+</span></div>
+          <form id="application-form">
+            <label>Company<input required maxlength="80" name="company" placeholder="e.g. Shopify" /></label>
+            <label>Role<input required maxlength="100" name="role" placeholder="e.g. Backend Developer" /></label>
+            <div class="two-column">
+              <label>Location<input maxlength="80" name="location" placeholder="Toronto / Remote" /></label>
+              <label>Deadline<input name="deadline" type="date" /></label>
+            </div>
+            <div class="two-column">
+              <label>Source<input maxlength="60" name="source" placeholder="WaterlooWorks" /></label>
+              <label>Status<select name="status"><option value="SAVED">Saved</option><option value="APPLIED">Applied</option><option value="INTERVIEW">Interview</option><option value="OFFER">Offer</option></select></label>
+            </div>
+            <label>Skills<input maxlength="250" name="skills" placeholder="Java, React, SQL" /><small>Separate skills with commas.</small></label>
+            <label>Notes<textarea maxlength="1000" name="notes" placeholder="What makes this role worth a closer look?"></textarea></label>
+            <button class="button" type="submit">Add to pipeline <span aria-hidden="true">→</span></button>
+          </form>
+        </aside>
+
+        <section class="panel board-panel" aria-label="Application pipeline">
+          <div class="panel-heading board-heading">
+            <div><p class="eyebrow">YOUR PIPELINE</p><h2>Every opportunity, visible.</h2></div>
+            <button class="button icon-button" id="export-csv" type="button" title="Export applications as CSV">↓ <span>Export</span></button>
+          </div>
+          <div class="filter-row">
+            <label class="search-label"><span class="sr-only">Search applications</span><input id="search" type="search" placeholder="⌕  Search company, role or skill" /></label>
+            <label class="filter-label">Show<select id="status-filter"><option value="ALL">All applications</option><option value="ACTIVE">Active search</option><option value="SAVED">Saved</option><option value="APPLIED">Applied</option><option value="INTERVIEW">Interview</option><option value="OFFER">Offers</option><option value="REJECTED">Rejected</option></select></label>
+            <label class="filter-label">Sort<select id="sort-by"><option value="newest">Recently added</option><option value="deadline">Deadline soonest</option><option value="company">Company A–Z</option></select></label>
+          </div>
+          <p class="notice" id="notice" aria-live="polite" hidden></p>
+          <div class="board" id="board"></div>
+        </section>
+      </section>
+    </main>
+    <template id="card-template">
+      <article class="application-card">
+        <div class="card-top"><p class="company"></p><button class="delete" type="button" title="Delete application" aria-label="Delete application">×</button></div>
+        <h3 class="role"></h3>
+        <p class="meta"></p>
+        <p class="deadline"></p>
+        <div class="tags"></div>
+        <p class="notes"></p>
+        <label class="status-label"><span>Move to</span><select class="status-select"></select></label>
+      </article>
+    </template>
+    <script src="app.js"></script>
+  </body>
+</html>
