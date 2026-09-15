@@ -39,7 +39,7 @@ Then visit [http://localhost:8080](http://localhost:8080). Data is saved locally
 
 The repository also includes a GitHub Pages workflow for a browser-only version. Once GitHub Pages is enabled for this repository, it will be available at [will-iam08.github.io/coop-compass](https://will-iam08.github.io/coop-compass/).
 
-That version keeps each person's entries in that browser's local storage. It is private to that browser, but it does not sync between devices or Safari profiles. The Java version above remains the full-stack local project.
+That version keeps each person's entries in that browser's local storage. It is private to that browser, but it does not sync between devices or Safari profiles. The Java version above remains the full-stack local project. Render can use the same browser-only build for an `onrender.com` link.
 
 Run the lightweight test with:
 

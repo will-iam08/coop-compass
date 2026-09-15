@@ -47,7 +47,7 @@ const browserStorageNote = document.querySelector("#browser-storage-note");
 const storageKey = "my-internship-notebook-weekly-goal";
 const browserDataKey = "my-internship-notebook-browser-data-v1";
 const retentionMs = 7 * 24 * 60 * 60 * 1000;
-const browserStorageMode = window.location.hostname.endsWith(".github.io");
+const browserStorageMode = window.NOTEBOOK_STORAGE_MODE === "browser" || window.location.hostname.endsWith(".github.io");
 let resolveRemoval;
 let resolvePermanentDeletion;
 
