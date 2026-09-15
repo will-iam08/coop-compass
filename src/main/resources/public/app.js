@@ -42,8 +42,12 @@ const permanentDeleteCopy = document.querySelector("#permanent-delete-copy");
 const confirmPermanentDelete = document.querySelector("#confirm-permanent-delete");
 const keepDeleted = document.querySelector("#keep-deleted");
 const cancelPermanentDelete = document.querySelector("#cancel-permanent-delete");
+const storageMode = document.querySelector("#storage-mode");
+const browserStorageNote = document.querySelector("#browser-storage-note");
 const storageKey = "my-internship-notebook-weekly-goal";
+const browserDataKey = "my-internship-notebook-browser-data-v1";
 const retentionMs = 7 * 24 * 60 * 60 * 1000;
+const browserStorageMode = window.location.hostname.endsWith(".github.io");
 let resolveRemoval;
 let resolvePermanentDeletion;
 
@@ -52,7 +56,163 @@ const dateLabel = value => value ? `Deadline: ${new Date(`${value}T12:00:00`).to
 const savedGoal = Number(window.localStorage.getItem(storageKey) ?? window.localStorage.getItem("coop-compass-weekly-goal"));
 goalInput.value = savedGoal > 0 ? savedGoal : 6;
 
+if (browserStorageMode) {
+  storageMode.innerHTML = "<i></i> Private browser storage";
+  browserStorageNote.hidden = false;
+}
+
+function readBrowserData() {
+  let saved = {};
+  try { saved = JSON.parse(window.localStorage.getItem(browserDataKey) || "{}"); }
+  catch { saved = {}; }
+  const active = Array.isArray(saved.applications) ? saved.applications : [];
+  const recentlyDeleted = Array.isArray(saved.recentlyDeleted) ? saved.recentlyDeleted : [];
+  const cutoff = Date.now() - retentionMs;
+  const largestId = Math.max(0, ...[...active, ...recentlyDeleted].map(application => Number(application.id) || 0));
+  return {
+    nextId: Number.isInteger(saved.nextId) && saved.nextId > largestId ? saved.nextId : largestId + 1,
+    applications: active,
+    recentlyDeleted: recentlyDeleted.filter(application => new Date(application.deletedAt).getTime() > cutoff)
+  };
+}
+
+function saveBrowserData(data) {
+  window.localStorage.setItem(browserDataKey, JSON.stringify(data));
+}
+
+function browserDashboard(data) {
+  const byStatus = Object.fromEntries(statuses.map(status => [status, data.applications.filter(application => application.status === status).length]));
+  const applied = byStatus.APPLIED + byStatus.INTERVIEW + byStatus.OFFER + byStatus.REJECTED;
+  const responses = byStatus.INTERVIEW + byStatus.OFFER + byStatus.REJECTED;
+  return { total:data.applications.length, byStatus, responseRate:applied ? Math.round((responses * 100) / applied) : 0 };
+}
+
+function browserPayload(options) {
+  if (!options.body) return {};
+  try { return JSON.parse(options.body); }
+  catch { throw new Error("Could not read your change."); }
+}
+
+function browserIds(payload) {
+  const ids = Array.isArray(payload.ids) ? payload.ids : [];
+  if (!ids.length || ids.some(id => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+    throw new Error("Choose at least one valid application.");
+  }
+  return ids;
+}
+
+function browserApplication(payload, id) {
+  const company = String(payload.company || "").trim();
+  const role = String(payload.role || "").trim();
+  if (!company || !role) throw new Error("Company and role are required.");
+  const status = String(payload.status || "SAVED").toUpperCase();
+  if (!statuses.includes(status)) throw new Error("Choose a valid pipeline stage.");
+  const skills = Array.isArray(payload.skills) ? payload.skills : String(payload.skills || "").split(",");
+  return {
+    id,
+    company,
+    role,
+    location:String(payload.location || "").trim(),
+    source:String(payload.source || "").trim(),
+    status,
+    deadline:String(payload.deadline || "").trim(),
+    notes:String(payload.notes || "").trim(),
+    skills:skills.map(skill => String(skill).trim()).filter(Boolean).slice(0, 12),
+    createdAt:new Date().toISOString()
+  };
+}
+
+function browserRequest(url, options = {}) {
+  const path = new URL(url, window.location.href).pathname;
+  const method = options.method || "GET";
+  const payload = browserPayload(options);
+  const data = readBrowserData();
+  const save = () => saveBrowserData(data);
+  const activeByIds = ids => {
+    const selected = ids.map(id => data.applications.find(application => application.id === id));
+    if (selected.some(application => !application)) throw new Error("One or more applications could not be found.");
+    return selected;
+  };
+  const deletedByIds = ids => {
+    const selected = ids.map(id => data.recentlyDeleted.find(application => application.id === id));
+    if (selected.some(application => !application)) throw new Error("One or more deleted applications could not be found.");
+    return selected;
+  };
+
+  if (method === "GET" && path === "/api/applications") return data.applications;
+  if (method === "GET" && path === "/api/dashboard") return browserDashboard(data);
+  if (method === "GET" && path === "/api/recently-deleted") return data.recentlyDeleted;
+
+  if (method === "POST" && path === "/api/applications") {
+    const application = browserApplication(payload, data.nextId++);
+    data.applications.push(application); save(); return application;
+  }
+  if (method === "POST" && path === "/api/applications/bulk-status") {
+    const ids = browserIds(payload);
+    const status = String(payload.status || "").toUpperCase();
+    if (!statuses.includes(status)) throw new Error("Choose a valid pipeline stage.");
+    const selected = activeByIds(ids);
+    selected.forEach(application => { application.status = status; }); save(); return selected;
+  }
+  if (method === "POST" && path === "/api/applications/bulk-delete") {
+    const ids = browserIds(payload);
+    const selected = activeByIds(ids);
+    const deletedAt = new Date().toISOString();
+    data.applications = data.applications.filter(application => !ids.includes(application.id));
+    const deleted = selected.map(application => ({ ...application, deletedAt }));
+    data.recentlyDeleted.push(...deleted); save(); return deleted;
+  }
+  if (method === "POST" && path === "/api/recently-deleted/bulk-restore") {
+    const ids = browserIds(payload);
+    const selected = deletedByIds(ids);
+    data.recentlyDeleted = data.recentlyDeleted.filter(application => !ids.includes(application.id));
+    const restored = selected.map(({ deletedAt, ...application }) => application);
+    data.applications.push(...restored); save(); return restored;
+  }
+  if (method === "POST" && path === "/api/recently-deleted/bulk-permanent-delete") {
+    const ids = browserIds(payload);
+    const selected = deletedByIds(ids);
+    data.recentlyDeleted = data.recentlyDeleted.filter(application => !ids.includes(application.id));
+    save(); return selected;
+  }
+
+  const applicationMatch = path.match(/^\/api\/applications\/(\d+)$/);
+  if (applicationMatch) {
+    const id = Number(applicationMatch[1]);
+    const application = data.applications.find(entry => entry.id === id);
+    if (!application) throw new Error("Application not found.");
+    if (method === "PATCH") {
+      const status = String(payload.status || "").toUpperCase();
+      if (!statuses.includes(status)) throw new Error("Choose a valid pipeline stage.");
+      application.status = status; save(); return application;
+    }
+    if (method === "DELETE") {
+      data.applications = data.applications.filter(entry => entry.id !== id);
+      data.recentlyDeleted.push({ ...application, deletedAt:new Date().toISOString() }); save(); return null;
+    }
+  }
+
+  const restoreMatch = path.match(/^\/api\/recently-deleted\/(\d+)\/restore$/);
+  if (restoreMatch && method === "POST") {
+    const id = Number(restoreMatch[1]);
+    const deleted = data.recentlyDeleted.find(entry => entry.id === id);
+    if (!deleted) throw new Error("Recently deleted application not found.");
+    data.recentlyDeleted = data.recentlyDeleted.filter(entry => entry.id !== id);
+    const { deletedAt, ...application } = deleted;
+    data.applications.push(application); save(); return application;
+  }
+  const deletedMatch = path.match(/^\/api\/recently-deleted\/(\d+)$/);
+  if (deletedMatch && method === "DELETE") {
+    const id = Number(deletedMatch[1]);
+    const deleted = data.recentlyDeleted.find(entry => entry.id === id);
+    if (!deleted) throw new Error("Recently deleted application not found.");
+    data.recentlyDeleted = data.recentlyDeleted.filter(entry => entry.id !== id); save(); return null;
+  }
+  throw new Error("This action is not available in browser storage mode.");
+}
+
 async function request(url, options = {}) {
+  if (browserStorageMode) return browserRequest(url, options);
   const response = await fetch(url, { headers: { "Content-Type":"application/json" }, ...options });
   if (!response.ok) { const error = await response.json().catch(() => ({})); throw new Error(error.error || "Could not save your change."); }
   return response.status === 204 ? null : response.json();
