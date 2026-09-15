@@ -2,6 +2,12 @@ const statuses = ["SAVED", "APPLIED", "INTERVIEW", "OFFER", "REJECTED"];
 const labels = { SAVED: "Saved", APPLIED: "Applied", INTERVIEW: "Interview", OFFER: "Offer", REJECTED: "Rejected" };
 let applications = [];
 let deletedApplications = [];
+let visibleApplications = [];
+let selectedIds = new Set();
+let batchBusy = false;
+let selectedDeletedIds = new Set();
+let deletedSelectionMode = false;
+let deletedBatchBusy = false;
 
 const board = document.querySelector("#board");
 const notice = document.querySelector("#notice");
@@ -9,16 +15,37 @@ const form = document.querySelector("#application-form");
 const goalInput = document.querySelector("#weekly-goal");
 const statusFilter = document.querySelector("#status-filter");
 const sortBy = document.querySelector("#sort-by");
+const selectionToolbar = document.querySelector("#selection-toolbar");
+const selectionCount = document.querySelector("#selection-count");
+const selectVisible = document.querySelector("#select-visible");
+const batchStatus = document.querySelector("#batch-status");
+const moveSelected = document.querySelector("#move-selected");
+const deleteSelected = document.querySelector("#delete-selected");
+const clearSelection = document.querySelector("#clear-selection");
 const recentlyDeleted = document.querySelector("#recently-deleted");
 const deletedCount = document.querySelector("#deleted-count");
+const toggleDeletedSelection = document.querySelector("#toggle-deleted-selection");
+const deletedSelectionToolbar = document.querySelector("#deleted-selection-toolbar");
+const deletedSelectionCount = document.querySelector("#deleted-selection-count");
+const selectAllDeleted = document.querySelector("#select-all-deleted");
+const restoreSelectedDeleted = document.querySelector("#restore-selected-deleted");
+const permanentlyDeleteSelected = document.querySelector("#permanently-delete-selected");
 const confirmDialog = document.querySelector("#confirm-dialog");
+const confirmTitle = document.querySelector("#confirm-title");
 const confirmCopy = document.querySelector("#confirm-copy");
 const confirmRemove = document.querySelector("#confirm-remove");
 const keepApplication = document.querySelector("#keep-application");
 const cancelRemove = document.querySelector("#cancel-remove");
+const permanentDeleteDialog = document.querySelector("#permanent-delete-dialog");
+const permanentDeleteTitle = document.querySelector("#permanent-delete-title");
+const permanentDeleteCopy = document.querySelector("#permanent-delete-copy");
+const confirmPermanentDelete = document.querySelector("#confirm-permanent-delete");
+const keepDeleted = document.querySelector("#keep-deleted");
+const cancelPermanentDelete = document.querySelector("#cancel-permanent-delete");
 const storageKey = "my-internship-notebook-weekly-goal";
 const retentionMs = 7 * 24 * 60 * 60 * 1000;
 let resolveRemoval;
+let resolvePermanentDeletion;
 
 const escapeHtml = (value = "") => String(value).replace(/[&<>'"]/g, character => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[character]);
 const dateLabel = value => value ? `Deadline: ${new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month:"short", day:"numeric" })}` : "";
@@ -36,8 +63,14 @@ function showNotice(message, error = false) {
   window.clearTimeout(showNotice.timer); showNotice.timer = window.setTimeout(() => { notice.hidden = true; }, 4200);
 }
 
-function confirmRemoval(company) {
-  confirmCopy.textContent = `${company} will stay recoverable in Recently Deleted for seven days.`;
+function confirmRemoval(companies) {
+  const names = Array.isArray(companies) ? companies : [companies];
+  const count = names.length;
+  confirmTitle.textContent = count === 1 ? "Move this to Recently Deleted?" : `Move ${count} applications to Recently Deleted?`;
+  confirmCopy.textContent = count === 1
+    ? `${names[0]} will stay recoverable in Recently Deleted for seven days.`
+    : `These applications will stay recoverable in Recently Deleted for seven days.`;
+  confirmRemove.textContent = count === 1 ? "Move it" : "Move them";
   confirmDialog.showModal();
   return new Promise(resolve => { resolveRemoval = resolve; });
 }
@@ -60,6 +93,36 @@ confirmDialog.addEventListener("click", event => {
   if (event.target === confirmDialog) closeRemoval(false);
 });
 
+function confirmPermanentDeletion(companies) {
+  const names = Array.isArray(companies) ? companies : [companies];
+  const count = names.length;
+  permanentDeleteTitle.textContent = count === 1 ? `Delete ${names[0]} permanently?` : `Delete ${count} applications permanently?`;
+  permanentDeleteCopy.textContent = count === 1
+    ? "This application will be removed immediately and cannot be restored."
+    : "These applications will be removed immediately and cannot be restored.";
+  confirmPermanentDelete.textContent = count === 1 ? "Delete permanently" : "Delete all permanently";
+  permanentDeleteDialog.showModal();
+  return new Promise(resolve => { resolvePermanentDeletion = resolve; });
+}
+
+function closePermanentDeletion(confirmed) {
+  if (!permanentDeleteDialog.open) return;
+  permanentDeleteDialog.close();
+  resolvePermanentDeletion?.(confirmed);
+  resolvePermanentDeletion = undefined;
+}
+
+confirmPermanentDelete.addEventListener("click", () => closePermanentDeletion(true));
+keepDeleted.addEventListener("click", () => closePermanentDeletion(false));
+cancelPermanentDelete.addEventListener("click", () => closePermanentDeletion(false));
+permanentDeleteDialog.addEventListener("cancel", event => {
+  event.preventDefault();
+  closePermanentDeletion(false);
+});
+permanentDeleteDialog.addEventListener("click", event => {
+  if (event.target === permanentDeleteDialog) closePermanentDeletion(false);
+});
+
 function render() {
   const query = document.querySelector("#search").value.trim().toLowerCase();
   const filter = statusFilter.value;
@@ -67,6 +130,7 @@ function render() {
     .filter(application => [application.company, application.role, application.location, application.skills.join(" ")].join(" ").toLowerCase().includes(query))
     .filter(application => filter === "ALL" || (filter === "ACTIVE" ? ["SAVED", "APPLIED", "INTERVIEW"].includes(application.status) : application.status === filter))
     .sort(compareApplications);
+  visibleApplications = visible;
   board.innerHTML = "";
   statuses.forEach(status => {
     const entries = visible.filter(application => application.status === status);
@@ -78,6 +142,7 @@ function render() {
     entries.forEach((application, index) => cards.append(card(application, index)));
     board.append(column);
   });
+  renderSelectionToolbar();
   renderInsights();
   renderRecentlyDeleted();
 }
@@ -109,15 +174,90 @@ function card(application, index) {
     try { await request(`/api/applications/${application.id}`, { method:"PATCH", body:JSON.stringify({ status:event.target.value }) }); await refresh(); showNotice("Application updated."); }
     catch (error) { showNotice(error.message, true); event.target.value = application.status; }
   });
+  const selection = node.querySelector(".select-application");
+  selection.checked = selectedIds.has(application.id);
+  selection.disabled = batchBusy;
+  selection.setAttribute("aria-label", `Select ${application.company}`);
+  node.classList.toggle("is-selected", selection.checked);
+  selection.addEventListener("change", () => {
+    if (selection.checked) selectedIds.add(application.id);
+    else selectedIds.delete(application.id);
+    node.classList.toggle("is-selected", selection.checked);
+    renderSelectionToolbar();
+  });
   const removeButton = node.querySelector(".delete");
   removeButton.setAttribute("aria-label", `Move ${application.company} to Recently Deleted`);
   removeButton.addEventListener("click", async () => {
-    const confirmed = await confirmRemoval(application.company);
+    const confirmed = await confirmRemoval([application.company]);
     if (confirmed !== true) return;
     try { await request(`/api/applications/${application.id}`, { method:"DELETE" }); await refresh(); showNotice("Application removed."); }
     catch (error) { showNotice(error.message, true); }
   });
   return node;
+}
+
+function selectedApplications() {
+  return applications.filter(application => selectedIds.has(application.id));
+}
+
+function renderSelectionToolbar() {
+  const count = selectedIds.size;
+  const hasSelection = count > 0;
+  const allVisibleSelected = visibleApplications.length > 0 && visibleApplications.every(application => selectedIds.has(application.id));
+  selectionToolbar.classList.toggle("has-selection", hasSelection);
+  selectionCount.textContent = `${count} selected`;
+  selectVisible.textContent = allVisibleSelected ? "Clear visible" : "Select visible";
+  selectVisible.disabled = batchBusy || visibleApplications.length === 0;
+  batchStatus.disabled = !hasSelection || batchBusy;
+  moveSelected.disabled = !hasSelection || batchBusy;
+  deleteSelected.disabled = !hasSelection || batchBusy;
+  clearSelection.disabled = !hasSelection || batchBusy;
+  document.querySelectorAll(".select-application").forEach(input => { input.disabled = batchBusy; });
+}
+
+async function moveSelectedApplications() {
+  const selections = selectedApplications();
+  if (!selections.length) return;
+  const status = batchStatus.value;
+  batchBusy = true;
+  renderSelectionToolbar();
+  try {
+    await request("/api/applications/bulk-status", {
+      method:"POST",
+      body:JSON.stringify({ ids:selections.map(application => application.id), status })
+    });
+    selectedIds.clear();
+    await refresh();
+    showNotice(`${selections.length} ${selections.length === 1 ? "application is" : "applications are"} now ${labels[status]}.`);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    batchBusy = false;
+    renderSelectionToolbar();
+  }
+}
+
+async function deleteSelectedApplications() {
+  const selections = selectedApplications();
+  if (!selections.length) return;
+  const confirmed = await confirmRemoval(selections.map(application => application.company));
+  if (confirmed !== true) return;
+  batchBusy = true;
+  renderSelectionToolbar();
+  try {
+    await request("/api/applications/bulk-delete", {
+      method:"POST",
+      body:JSON.stringify({ ids:selections.map(application => application.id) })
+    });
+    selectedIds.clear();
+    await refresh();
+    showNotice(`${selections.length} ${selections.length === 1 ? "application is" : "applications are"} in Recently Deleted for seven days.`);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    batchBusy = false;
+    renderSelectionToolbar();
+  }
 }
 
 function stats(dashboard) {
@@ -162,10 +302,79 @@ function timeRemaining(deletedAt) {
   return days === 1 ? "1 day left" : `${days} days left`;
 }
 
+function selectedDeletedApplications() {
+  return deletedApplications.filter(application => selectedDeletedIds.has(application.id));
+}
+
+function renderDeletedSelectionToolbar() {
+  const count = selectedDeletedIds.size;
+  const hasSelection = count > 0;
+  const allDeletedSelected = deletedApplications.length > 0 && deletedApplications.every(application => selectedDeletedIds.has(application.id));
+  toggleDeletedSelection.textContent = deletedSelectionMode ? "Done" : "Select items";
+  toggleDeletedSelection.setAttribute("aria-expanded", String(deletedSelectionMode));
+  toggleDeletedSelection.disabled = deletedBatchBusy || deletedApplications.length === 0;
+  deletedSelectionToolbar.hidden = !deletedSelectionMode;
+  deletedSelectionToolbar.classList.toggle("has-selection", deletedSelectionMode && hasSelection);
+
+  if (!deletedSelectionMode) return;
+
+  deletedSelectionCount.textContent = `${count} selected`;
+  selectAllDeleted.textContent = allDeletedSelected ? "Clear all" : "Select all";
+  selectAllDeleted.disabled = deletedBatchBusy || deletedApplications.length === 0;
+  restoreSelectedDeleted.disabled = !hasSelection || deletedBatchBusy;
+  permanentlyDeleteSelected.disabled = !hasSelection || deletedBatchBusy;
+  document.querySelectorAll(".select-deleted-application").forEach(input => { input.disabled = deletedBatchBusy; });
+}
+
+async function restoreSelectedDeletedApplications() {
+  const selections = selectedDeletedApplications();
+  if (!selections.length) return;
+  deletedBatchBusy = true;
+  renderDeletedSelectionToolbar();
+  try {
+    await request("/api/recently-deleted/bulk-restore", {
+      method:"POST",
+      body:JSON.stringify({ ids:selections.map(application => application.id) })
+    });
+    selectedDeletedIds.clear();
+    await refresh();
+    showNotice(`${selections.length} ${selections.length === 1 ? "application is" : "applications are"} back in your pipeline.`);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    deletedBatchBusy = false;
+    renderDeletedSelectionToolbar();
+  }
+}
+
+async function permanentlyDeleteSelectedApplications() {
+  const selections = selectedDeletedApplications();
+  if (!selections.length) return;
+  const confirmed = await confirmPermanentDeletion(selections.map(application => application.company));
+  if (confirmed !== true) return;
+  deletedBatchBusy = true;
+  renderDeletedSelectionToolbar();
+  try {
+    await request("/api/recently-deleted/bulk-permanent-delete", {
+      method:"POST",
+      body:JSON.stringify({ ids:selections.map(application => application.id) })
+    });
+    selectedDeletedIds.clear();
+    await refresh();
+    showNotice(`${selections.length} ${selections.length === 1 ? "application was" : "applications were"} deleted permanently.`);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    deletedBatchBusy = false;
+    renderDeletedSelectionToolbar();
+  }
+}
+
 function renderRecentlyDeleted() {
   const count = deletedApplications.length;
   deletedCount.textContent = `${count} ${count === 1 ? "item" : "items"}`;
   recentlyDeleted.innerHTML = "";
+  renderDeletedSelectionToolbar();
 
   if (!count) {
     recentlyDeleted.innerHTML = `<p class="deleted-empty">Nothing here right now. If you remove an application, you’ll have seven days to bring it back.</p>`;
@@ -179,6 +388,23 @@ function renderRecentlyDeleted() {
       const node = document.createElement("article");
       node.className = "deleted-card";
       node.style.setProperty("--deleted-index", index);
+      const isSelected = selectedDeletedIds.has(application.id);
+      node.classList.toggle("is-selected", deletedSelectionMode && isSelected);
+      if (deletedSelectionMode) {
+        const selection = document.createElement("input");
+        selection.className = "select-deleted-application";
+        selection.type = "checkbox";
+        selection.checked = isSelected;
+        selection.disabled = deletedBatchBusy;
+        selection.setAttribute("aria-label", `Select ${application.company} from Recently Deleted`);
+        selection.addEventListener("change", () => {
+          if (selection.checked) selectedDeletedIds.add(application.id);
+          else selectedDeletedIds.delete(application.id);
+          node.classList.toggle("is-selected", selection.checked);
+          renderDeletedSelectionToolbar();
+        });
+        node.append(selection);
+      }
       const timer = document.createElement("p");
       timer.className = "deleted-timer";
       timer.textContent = `◷ ${timeRemaining(application.deletedAt)}`;
@@ -187,24 +413,10 @@ function renderRecentlyDeleted() {
       const details = document.createElement("p");
       details.className = "deleted-details";
       details.textContent = [application.role, application.location].filter(Boolean).join(" · ") || "Application";
-      const restore = document.createElement("button");
-      restore.className = "button restore-button";
-      restore.type = "button";
-      restore.textContent = "Restore to pipeline ↗";
-      restore.addEventListener("click", async () => {
-        restore.disabled = true;
-        try {
-          await request(`/api/recently-deleted/${application.id}/restore`, { method:"POST" });
-          await refresh();
-          showNotice(`${application.company} is back in your pipeline.`);
-        } catch (error) {
-          showNotice(error.message, true);
-          restore.disabled = false;
-        }
-      });
-      node.append(timer, company, details, restore);
+      node.append(timer, company, details);
       recentlyDeleted.append(node);
     });
+  renderDeletedSelectionToolbar();
 }
 
 async function refresh() {
@@ -215,6 +427,11 @@ async function refresh() {
   ]);
   applications = activeApplications;
   deletedApplications = removedApplications;
+  const activeIds = new Set(applications.map(application => application.id));
+  const deletedIds = new Set(deletedApplications.map(application => application.id));
+  selectedIds = new Set([...selectedIds].filter(id => activeIds.has(id)));
+  selectedDeletedIds = new Set([...selectedDeletedIds].filter(id => deletedIds.has(id)));
+  if (!deletedApplications.length) deletedSelectionMode = false;
   stats(dashboard);
   render();
 }
@@ -229,6 +446,34 @@ form.addEventListener("submit", async event => {
 document.querySelector("#search").addEventListener("input", render);
 statusFilter.addEventListener("change", render);
 sortBy.addEventListener("change", render);
+selectVisible.addEventListener("click", () => {
+  const allVisibleSelected = visibleApplications.length > 0 && visibleApplications.every(application => selectedIds.has(application.id));
+  visibleApplications.forEach(application => {
+    if (allVisibleSelected) selectedIds.delete(application.id);
+    else selectedIds.add(application.id);
+  });
+  render();
+});
+clearSelection.addEventListener("click", () => {
+  selectedIds.clear();
+  render();
+});
+moveSelected.addEventListener("click", moveSelectedApplications);
+deleteSelected.addEventListener("click", deleteSelectedApplications);
+toggleDeletedSelection.addEventListener("click", () => {
+  if (deletedBatchBusy || !deletedApplications.length) return;
+  deletedSelectionMode = !deletedSelectionMode;
+  if (!deletedSelectionMode) selectedDeletedIds.clear();
+  renderRecentlyDeleted();
+});
+selectAllDeleted.addEventListener("click", () => {
+  const allDeletedSelected = deletedApplications.length > 0 && deletedApplications.every(application => selectedDeletedIds.has(application.id));
+  if (allDeletedSelected) selectedDeletedIds.clear();
+  else deletedApplications.forEach(application => selectedDeletedIds.add(application.id));
+  renderRecentlyDeleted();
+});
+restoreSelectedDeleted.addEventListener("click", restoreSelectedDeletedApplications);
+permanentlyDeleteSelected.addEventListener("click", permanentlyDeleteSelectedApplications);
 goalInput.addEventListener("change", () => {
   const goal = Math.max(1, Math.min(50, Number(goalInput.value) || 6));
   goalInput.value = goal;
@@ -244,14 +489,4 @@ document.querySelector("#export-csv").addEventListener("click", () => {
   link.click(); URL.revokeObjectURL(link.href);
   showNotice("CSV exported — nice work keeping a record of your search.");
 });
-document.querySelector("#load-demo").addEventListener("click", async () => {
-  const examples = [
-    { company:"Maple Labs", role:"Junior Backend Developer", location:"Toronto, ON", source:"WaterlooWorks", status:"APPLIED", deadline:"2026-09-22", skills:"Java, REST APIs, PostgreSQL", notes:"Interesting platform team. Ask about mentoring in a first interview." },
-    { company:"Northstar Systems", role:"Software Engineering Intern", location:"Remote", source:"Company site", status:"INTERVIEW", deadline:"", skills:"JavaScript, Testing, Docker", notes:"Technical screen scheduled. Review async JavaScript and API design." },
-    { company:"Civic Signal", role:"Full-Stack Developer", location:"Waterloo, ON", source:"Referral", status:"SAVED", deadline:"2026-10-03", skills:"React, Java, SQL", notes:"Mission-driven product team; tailor the résumé before applying." }
-  ];
-  try { for (const example of examples) await request("/api/applications", { method:"POST", body:JSON.stringify(example) }); await refresh(); showNotice("Demo applications added — edit or delete them freely."); }
-  catch (error) { showNotice(error.message, true); }
-});
-
 refresh().catch(error => showNotice(`Could not connect to the app: ${error.message}`, true));

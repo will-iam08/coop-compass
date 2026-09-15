@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="A calm command centre for your internship search." />
+    <meta name="description" content="A calm command centre for internship applications, interviews, and offers." />
     <title>My Internship Notebook</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -14,13 +14,9 @@
       <header class="hero">
         <div class="hero-copy">
           <div class="status-pill"><i></i> Search mode: on</div>
-          <p class="eyebrow">YOUR INTERNSHIP SEARCH, ORGANIZED</p>
+          <p class="eyebrow">INTERNSHIP APPLICATIONS &amp; INTERVIEWS, ORGANIZED</p>
           <h1>My Internship Notebook<span>.</span></h1>
-          <p class="subtitle">A calm, focused home base for turning good applications into great interviews.</p>
-        </div>
-        <div class="hero-actions">
-          <span class="term-badge">WINTER ’27 INTERNSHIP</span>
-          <button class="button button-secondary" id="load-demo" type="button">✦ Load demo data</button>
+          <p class="subtitle">A calm, focused home base for applications, interviews, and offers.</p>
         </div>
       </header>
 
@@ -77,6 +73,16 @@
             <label class="filter-label">Show<select id="status-filter"><option value="ALL">All applications</option><option value="ACTIVE">Active search</option><option value="SAVED">Saved</option><option value="APPLIED">Applied</option><option value="INTERVIEW">Interview</option><option value="OFFER">Offers</option><option value="REJECTED">Rejected</option></select></label>
             <label class="filter-label">Sort<select id="sort-by"><option value="newest">Recently added</option><option value="deadline">Deadline soonest</option><option value="company">Company A–Z</option></select></label>
           </div>
+          <section class="selection-toolbar" id="selection-toolbar" aria-label="Batch application actions">
+            <div class="selection-copy"><strong id="selection-count" aria-live="polite">0 selected</strong><span>Choose cards, then move them together.</span></div>
+            <div class="selection-actions">
+              <button class="text-button" id="select-visible" type="button">Select visible</button>
+              <label class="batch-status-label">Move to<select id="batch-status" disabled><option value="SAVED">Saved</option><option value="APPLIED">Applied</option><option value="INTERVIEW">Interview</option><option value="OFFER">Offer</option><option value="REJECTED">Rejected</option></select></label>
+              <button class="button batch-move" id="move-selected" type="button" disabled>Move</button>
+              <button class="text-button batch-delete" id="delete-selected" type="button" disabled>Recently Deleted</button>
+              <button class="text-button clear-selection" id="clear-selection" type="button" disabled>Clear</button>
+            </div>
+          </section>
           <p class="notice" id="notice" aria-live="polite" hidden></p>
           <div class="board" id="board"></div>
         </section>
@@ -86,17 +92,28 @@
         <div class="deleted-heading">
           <div>
             <p class="eyebrow">A SMALL SAFETY NET</p>
-            <h2 id="recently-deleted-heading">Recently Deleted</h2>
-            <p>Applications you remove stay here for seven days, then clear themselves automatically.</p>
+            <div class="deleted-title-row">
+              <h2 id="recently-deleted-heading">Recently Deleted</h2>
+              <button class="text-button deleted-select-toggle" id="toggle-deleted-selection" type="button" aria-controls="deleted-selection-toolbar" aria-expanded="false">Select items</button>
+            </div>
+            <p>Applications you remove stay here for seven days. Restore them during that window, or delete them permanently when you’re sure.</p>
           </div>
           <span class="deleted-count" id="deleted-count" aria-live="polite">0 items</span>
         </div>
+        <section class="selection-toolbar deleted-selection-toolbar" id="deleted-selection-toolbar" aria-label="Recently Deleted batch actions" hidden>
+          <div class="selection-copy"><strong id="deleted-selection-count" aria-live="polite">0 selected</strong><span>Select cards, then restore or delete them together.</span></div>
+          <div class="selection-actions deleted-selection-actions">
+            <button class="text-button" id="select-all-deleted" type="button">Select all</button>
+            <button class="button restore-selected-button" id="restore-selected-deleted" type="button" disabled>Restore selected</button>
+            <button class="button permanently-delete-selected" id="permanently-delete-selected" type="button" disabled>Delete permanently</button>
+          </div>
+        </section>
         <div class="deleted-list" id="recently-deleted"></div>
       </section>
     </main>
     <template id="card-template">
       <article class="application-card">
-        <div class="card-top"><p class="company"></p><button class="delete" type="button" title="Move to Recently Deleted" aria-label="Move to Recently Deleted">×</button></div>
+        <div class="card-top"><p class="company"></p><div class="card-actions"><input class="select-application" type="checkbox" title="Select application" /><button class="delete" type="button" title="Move to Recently Deleted" aria-label="Move to Recently Deleted">×</button></div></div>
         <h3 class="role"></h3>
         <p class="meta"></p>
         <p class="deadline"></p>
@@ -115,6 +132,19 @@
         <div class="dialog-actions">
           <button class="button button-secondary" type="button" id="keep-application">Keep it</button>
           <button class="button danger-button" type="button" id="confirm-remove">Move it</button>
+        </div>
+      </section>
+    </dialog>
+    <dialog class="confirm-dialog" id="permanent-delete-dialog" aria-labelledby="permanent-delete-title" aria-describedby="permanent-delete-copy">
+      <section class="confirm-card">
+        <button class="dialog-close" type="button" id="cancel-permanent-delete" aria-label="Cancel permanent deletion">×</button>
+        <div class="dialog-mark" aria-hidden="true">!</div>
+        <p class="eyebrow">THIS CAN'T BE UNDONE</p>
+        <h2 id="permanent-delete-title">Delete permanently?</h2>
+        <p id="permanent-delete-copy">This application will be removed immediately and cannot be restored.</p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" type="button" id="keep-deleted">Keep it</button>
+          <button class="button danger-button" type="button" id="confirm-permanent-delete">Delete permanently</button>
         </div>
       </section>
     </dialog>

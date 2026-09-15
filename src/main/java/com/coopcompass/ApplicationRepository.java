@@ -13,11 +13,13 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -86,6 +88,28 @@ public final class ApplicationRepository {
         return Optional.of(updated);
     }
 
+    /**
+     * Changes the status of every requested active application in one save operation.
+     * If any ID is not active, nothing is changed.
+     */
+    public synchronized Optional<List<Application>> updateStatuses(List<Long> ids, String rawStatus) throws IOException {
+        purgeExpiredAndSave();
+        List<Long> requestedIds = requiredIds(ids);
+        Application.Status status = requiredStatus(rawStatus);
+        List<Application> originals = activeApplications(requestedIds);
+        if (originals == null) return Optional.empty();
+
+        List<Application> updated = originals.stream().map(application -> application.withStatus(status)).toList();
+        updated.forEach(application -> applications.put(application.id(), application));
+        try {
+            save();
+        } catch (IOException exception) {
+            originals.forEach(application -> applications.put(application.id(), application));
+            throw exception;
+        }
+        return Optional.of(updated);
+    }
+
     public synchronized boolean delete(long id) throws IOException {
         purgeExpiredAndSave();
         Application application = applications.remove(id);
@@ -100,6 +124,32 @@ public final class ApplicationRepository {
             throw exception;
         }
         return true;
+    }
+
+    /**
+     * Soft-deletes every requested active application in one save operation.
+     * If any ID is not active, nothing is moved to Recently Deleted.
+     */
+    public synchronized Optional<List<DeletedApplication>> deleteAll(List<Long> ids) throws IOException {
+        purgeExpiredAndSave();
+        List<Long> requestedIds = requiredIds(ids);
+        List<Application> originals = activeApplications(requestedIds);
+        if (originals == null) return Optional.empty();
+
+        Instant deletedAt = clock.instant();
+        List<DeletedApplication> deleted = originals.stream()
+                .map(application -> new DeletedApplication(application, deletedAt))
+                .toList();
+        originals.forEach(application -> applications.remove(application.id()));
+        deleted.forEach(application -> recentlyDeleted.put(application.application().id(), application));
+        try {
+            save();
+        } catch (IOException exception) {
+            deleted.forEach(application -> recentlyDeleted.remove(application.application().id()));
+            originals.forEach(application -> applications.put(application.id(), application));
+            throw exception;
+        }
+        return Optional.of(deleted);
     }
 
     public synchronized List<DeletedApplication> recentlyDeleted() throws IOException {
@@ -125,6 +175,31 @@ public final class ApplicationRepository {
         return Optional.of(deleted.application());
     }
 
+    /**
+     * Restores every requested Recently Deleted application in one save operation.
+     * If any ID is no longer available, nothing is restored.
+     */
+    public synchronized Optional<List<Application>> restoreAll(List<Long> ids) throws IOException {
+        purgeExpiredAndSave();
+        List<Long> requestedIds = requiredIds(ids);
+        List<DeletedApplication> originals = deletedApplications(requestedIds);
+        if (originals == null || originals.stream().anyMatch(deleted -> applications.containsKey(deleted.application().id()))) {
+            return Optional.empty();
+        }
+
+        List<Application> restored = originals.stream().map(DeletedApplication::application).toList();
+        originals.forEach(deleted -> recentlyDeleted.remove(deleted.application().id()));
+        restored.forEach(application -> applications.put(application.id(), application));
+        try {
+            save();
+        } catch (IOException exception) {
+            restored.forEach(application -> applications.remove(application.id()));
+            originals.forEach(deleted -> recentlyDeleted.put(deleted.application().id(), deleted));
+            throw exception;
+        }
+        return Optional.of(restored);
+    }
+
     public synchronized boolean permanentlyDelete(long id) throws IOException {
         purgeExpiredAndSave();
         DeletedApplication deleted = recentlyDeleted.remove(id);
@@ -136,6 +211,26 @@ public final class ApplicationRepository {
             throw exception;
         }
         return true;
+    }
+
+    /**
+     * Permanently removes every requested Recently Deleted application in one save operation.
+     * If any ID is no longer available, nothing is removed.
+     */
+    public synchronized Optional<List<DeletedApplication>> permanentlyDeleteAll(List<Long> ids) throws IOException {
+        purgeExpiredAndSave();
+        List<Long> requestedIds = requiredIds(ids);
+        List<DeletedApplication> originals = deletedApplications(requestedIds);
+        if (originals == null) return Optional.empty();
+
+        originals.forEach(deleted -> recentlyDeleted.remove(deleted.application().id()));
+        try {
+            save();
+        } catch (IOException exception) {
+            originals.forEach(deleted -> recentlyDeleted.put(deleted.application().id(), deleted));
+            throw exception;
+        }
+        return Optional.of(originals);
     }
 
     public synchronized Dashboard dashboard() throws IOException {
@@ -209,6 +304,41 @@ public final class ApplicationRepository {
 
     private void purgeExpiredAndSave() throws IOException {
         if (purgeExpired()) save();
+    }
+
+    private List<Application> activeApplications(List<Long> ids) {
+        List<Application> result = new ArrayList<>();
+        for (long id : ids) {
+            Application application = applications.get(id);
+            if (application == null) return null;
+            result.add(application);
+        }
+        return result;
+    }
+
+    private List<DeletedApplication> deletedApplications(List<Long> ids) {
+        List<DeletedApplication> result = new ArrayList<>();
+        for (long id : ids) {
+            DeletedApplication deleted = recentlyDeleted.get(id);
+            if (deleted == null) return null;
+            result.add(deleted);
+        }
+        return result;
+    }
+
+    private static List<Long> requiredIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) throw new IllegalArgumentException("ids must contain at least one application ID.");
+        Set<Long> uniqueIds = new HashSet<>();
+        for (Long id : ids) {
+            if (id == null || id <= 0) throw new IllegalArgumentException("ids must contain positive application IDs.");
+            if (!uniqueIds.add(id)) throw new IllegalArgumentException("ids must not contain duplicate application IDs.");
+        }
+        return List.copyOf(ids);
+    }
+
+    private static Application.Status requiredStatus(String rawStatus) {
+        if (rawStatus == null || rawStatus.isBlank()) throw new IllegalArgumentException("status is required.");
+        return Application.Status.from(rawStatus);
     }
 
     private boolean purgeExpired() {

@@ -1,3 +1,4 @@
 out/
 data/*.tsv
+src/main/resources/public/testing.html
 .DS_Store

@@ -1,10 +1,11 @@
 # My Internship Notebook
 
-A local, full-stack command centre for keeping an internship search organized. It lets a student track applications from saved job to offer, see response-rate analytics, search their pipeline, and keep useful notes and skill tags alongside each role.
+A local, full-stack command centre for organizing internship applications, interviews, and offers. It lets users track opportunities from saved job to offer, see response-rate analytics, search their pipeline, and keep useful notes and skill tags alongside each role.
 
 ## Features
 
 - Kanban-style pipeline with one-click status updates
+- Multi-select controls for moving several applications to a stage or Recently Deleted at once
 - Application search, status filtering, and deadline/company sorting
 - Deadline radar and role-skill trend signals derived from your data
 - Persistent weekly application goal (stored locally in your browser)
@@ -17,7 +18,7 @@ This first version deliberately has **zero third-party dependencies**: the backe
 
 ## What it demonstrates
 
-- RESTful Java API design and input validation
+- RESTful Java API design, input validation, and atomic batch actions
 - Persistent local storage, reversible seven-day deletion, status transitions, and derived analytics
 - Responsive frontend state management using `fetch`
 - Accessible form labels, live error/status feedback, and keyboard-friendly controls

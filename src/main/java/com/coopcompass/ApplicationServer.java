@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
@@ -43,6 +44,22 @@ public final class ApplicationServer {
             String path = exchange.getRequestURI().getPath();
             if ("GET".equals(method) && "/api/applications".equals(path)) {
                 respondJson(exchange, 200, "[" + repository.list().stream().map(this::applicationJson).reduce((left, right) -> left + "," + right).orElse("") + "]");
+                return;
+            }
+            if ("POST".equals(method) && "/api/applications/bulk-status".equals(path)) {
+                String body = readBody(exchange);
+                List<Long> ids = Json.longArray(body, "ids");
+                String status = Json.string(body, "status").orElseThrow(() -> new IllegalArgumentException("status is required."));
+                List<Application> updated = repository.updateStatuses(ids, status)
+                        .orElseThrow(() -> new NotFoundException("One or more active applications were not found."));
+                respondJson(exchange, 200, applicationsJson(updated));
+                return;
+            }
+            if ("POST".equals(method) && "/api/applications/bulk-delete".equals(path)) {
+                List<Long> ids = Json.longArray(readBody(exchange), "ids");
+                List<ApplicationRepository.DeletedApplication> deleted = repository.deleteAll(ids)
+                        .orElseThrow(() -> new NotFoundException("One or more active applications were not found."));
+                respondJson(exchange, 200, deletedApplicationsJson(deleted));
                 return;
             }
             if ("POST".equals(method) && "/api/applications".equals(path)) {
@@ -96,6 +113,20 @@ public final class ApplicationServer {
                         .reduce((left, right) -> left + "," + right)
                         .orElse("");
                 respondJson(exchange, 200, "[" + applications + "]");
+                return;
+            }
+            if ("POST".equals(method) && "/api/recently-deleted/bulk-restore".equals(path)) {
+                List<Long> ids = Json.longArray(readBody(exchange), "ids");
+                List<Application> restored = repository.restoreAll(ids)
+                        .orElseThrow(() -> new NotFoundException("One or more Recently Deleted applications were not found."));
+                respondJson(exchange, 200, applicationsJson(restored));
+                return;
+            }
+            if ("POST".equals(method) && "/api/recently-deleted/bulk-permanent-delete".equals(path)) {
+                List<Long> ids = Json.longArray(readBody(exchange), "ids");
+                List<ApplicationRepository.DeletedApplication> deleted = repository.permanentlyDeleteAll(ids)
+                        .orElseThrow(() -> new NotFoundException("One or more Recently Deleted applications were not found."));
+                respondJson(exchange, 200, deletedApplicationsJson(deleted));
                 return;
             }
 
@@ -175,6 +206,14 @@ public final class ApplicationServer {
 
     private String deletedApplicationJson(ApplicationRepository.DeletedApplication deleted) {
         return applicationJson(deleted.application(), deleted.deletedAt());
+    }
+
+    private String applicationsJson(List<Application> applications) {
+        return "[" + applications.stream().map(this::applicationJson).reduce((left, right) -> left + "," + right).orElse("") + "]";
+    }
+
+    private String deletedApplicationsJson(List<ApplicationRepository.DeletedApplication> deleted) {
+        return "[" + deleted.stream().map(this::deletedApplicationJson).reduce((left, right) -> left + "," + right).orElse("") + "]";
     }
 
     private String applicationJson(Application application, java.time.Instant deletedAt) {
