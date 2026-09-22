@@ -64,7 +64,3 @@ Java HTTP server ── ApplicationRepository ── data/applications.tsv
 2. Add a Spring Boot API, validation annotations, and JUnit tests.
 3. Rebuild the UI with React/TypeScript and add login support.
 4. Deploy the API and database, then record a short product demo for your résumé.
-
-## Suggested résumé bullet
-
-> Built My Internship Notebook, a full-stack job-search dashboard using Java and JavaScript; designed REST endpoints, persistent application tracking, responsive analytics, and an accessible kanban workflow.
